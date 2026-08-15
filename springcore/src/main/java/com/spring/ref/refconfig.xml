@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xmlns:p="http://www.springframework.org/schema/p"
+	xsi:schemaLocation="
+           http://www.springframework.org/schema/beans
+           http://www.springframework.org/schema/beans/spring-beans.xsd">
+
+	<bean id="A" class="com.spring.ref.A" p:x="100" p:obj-ref="B">
+		<!-- <property name="x" value="100" />
+		<property name="obj" ref="B"></property> -->
+			<!-- <property name="obj">
+				<ref bean="B"/>
+			</property> -->
+	</bean>
+
+	<bean id="B" class="com.spring.ref.B">
+		<property name="y" value="200" />
+	</bean>
+</beans>
