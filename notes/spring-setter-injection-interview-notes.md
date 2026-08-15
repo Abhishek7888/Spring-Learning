@@ -1,4 +1,4 @@
-# Spring — Module Notes (Up to Setter Injection)
+# Spring Notes
 
 This file contains concise interview-focused notes on Spring Framework modules and core concepts up to setter injection. Use this to revise quickly before interviews.
 
