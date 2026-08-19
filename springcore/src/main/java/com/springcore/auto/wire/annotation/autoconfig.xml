@@ -10,9 +10,13 @@
            http://www.springframework.org/schema/context/spring-context.xsd">
 
 	<context:annotation-config />
-	<bean id="address"
+	<bean id="tmp"
 		class="com.springcore.auto.wire.annotation.Address"
-		p:street="tempStreeet" p:city="Mumbai" />
+		p:street="CSMT Market" p:city="Mumbai" />
+	<bean id="tmp2"
+		class="com.springcore.auto.wire.annotation.Address"
+		p:street="KarolBajar" p:city="Delhi" />
+		
 	<bean id="Emp" class="com.springcore.auto.wire.annotation.Emp" />
 
 </beans>
