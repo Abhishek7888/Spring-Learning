@@ -1,6 +1,6 @@
 # Spring Notes
 
-This file contains concise interview-focused notes on Spring Framework modules and core concepts including dependency injection, autowiring, bean lifecycle management, and stereotype annotations.
+This file contains concise interview-focused notes on Spring Framework modules and core concepts including dependency injection, autowiring, bean lifecycle management, bean scopes, and stereotype annotations.
 
 ## 1. What is Spring?
 - Spring is a lightweight Java framework that helps build enterprise applications.
@@ -48,7 +48,593 @@ Tip: In interviews, mention that Spring is modular — you include only what you
 - Annotation-based component scanning (@Component, @Service, @Repository, @Controller) and stereotype annotations
 - Externalized configuration with @Value and PropertySources
 
-## 5. Dependency Injection Types (detailed)
+## 5. Bean Scopes (Detailed Interview Guide)
+
+**What is Bean Scope?**
+Bean scope defines the lifecycle and visibility of a bean in the Spring container. It determines when a bean is created, how many instances are created, and when it's destroyed.
+
+### Types of Bean Scopes
+
+#### 1. **singleton** (Default Scope - Most Common)
+
+**Definition:**
+Only one instance of the bean is created per Spring container and reused for all requests. The same instance is shared across the entire application.
+
+**Characteristics:**
+- Default scope (if not specified)
+- Single instance per ApplicationContext
+- Bean is created at container startup (eager initialization)
+- Reused for every request
+- Thread-safe (managed by Spring container)
+- Long-lived (exists until container closes)
+
+**Declaration:**
+```java
+// Annotation-based
+@Component
+@Scope("singleton")  // Explicitly specified (not required as it's default)
+public class UserService {
+    private String userId;
+}
+
+// Or simply (default)
+@Component
+public class UserService {
+}
+
+// XML-based
+<bean id="userService" class="com.example.UserService" scope="singleton" />
+
+// Or simply (default)
+<bean id="userService" class="com.example.UserService" />
+```
+
+**Java Configuration:**
+```java
+@Configuration
+public class AppConfig {
+    @Bean
+    @Scope("singleton")  // Explicitly (optional)
+    public UserService userService() {
+        return new UserService();
+    }
+}
+```
+
+**Important Points:**
+- Instance is created once at startup
+- Same instance shared across all requests
+- Thread-safe (Spring manages synchronization)
+- Stateful data shared across threads
+- Performance efficient (no repeated instantiation)
+
+**Example Problem:**
+```java
+@Component
+@Scope("singleton")
+public class RequestCounter {
+    private int count = 0;  // Shared across all threads!
+    
+    public void increment() {
+        count++;  // Race condition - not thread-safe!
+    }
+}
+// Multiple threads accessing same count variable = data corruption
+```
+
+**When to use:**
+- Stateless services (UserService, OrderService)
+- Components with no mutable state
+- Cache objects
+- Utility services
+- Data access objects (DAOs)
+
+**Advantages:**
+- Memory efficient (single instance)
+- Performance efficient (no repeated creation)
+- Fast lookups (same instance)
+- Suitable for stateless components
+
+**Disadvantages:**
+- Not suitable for stateful components
+- Thread-safety must be handled carefully
+- Shared state risks
+- Testing may require resetting state between tests
+
+**Interview Example:**
+```java
+@Component
+@Scope("singleton")
+public class UserService {
+    private UserRepository userRepository;
+    
+    @Autowired
+    public UserService(UserRepository userRepository) {
+        this.userRepository = userRepository;
+    }
+    
+    // Stateless service - safe to be singleton
+    public User getUserById(int id) {
+        return userRepository.findById(id);
+    }
+}
+
+// All requests share same UserService instance
+// Thread-safe because no mutable state
+```
+
+---
+
+#### 2. **prototype** (New Instance Every Time)
+
+**Definition:**
+A new instance of the bean is created every time it's requested from the container.
+
+**Characteristics:**
+- New instance created for each request
+- Not shared between requests
+- Created on-demand (lazy initialization)
+- No singleton caching
+- Container doesn't manage full lifecycle
+- @PreDestroy NOT called
+- Caller responsible for cleanup
+
+**Declaration:**
+```java
+// Annotation-based
+@Component
+@Scope("prototype")
+public class RequestContext {
+    private String requestId;
+    private LocalDateTime createdAt;
+}
+
+// XML-based
+<bean id="requestContext" class="com.example.RequestContext" scope="prototype" />
+
+// Java Configuration
+@Configuration
+public class AppConfig {
+    @Bean
+    @Scope("prototype")
+    public RequestContext requestContext() {
+        return new RequestContext();
+    }
+}
+```
+
+**Important Points:**
+- New instance for every getBean() call
+- Spring doesn't manage destruction (@PreDestroy NOT called)
+- Caller must manage cleanup
+- Each instance is independent
+- No state sharing between instances
+- Suitable for stateful objects
+
+**Example:**
+```java
+// Prototype bean
+@Component
+@Scope("prototype")
+public class UserSession {
+    private String userId;
+    private String sessionId = UUID.randomUUID().toString();
+    private LocalDateTime loginTime = LocalDateTime.now();
+    
+    public UserSession() {
+        System.out.println("New UserSession created: " + sessionId);
+    }
+    
+    @PreDestroy
+    public void cleanup() {
+        // ⚠️ NOT called by Spring for prototype beans!
+        System.out.println("Cleanup called");
+    }
+}
+
+// Usage
+@Component
+public class SessionManager {
+    @Autowired
+    private ApplicationContext context;
+    
+    public UserSession createSession() {
+        // Each call gets NEW instance
+        UserSession session1 = context.getBean(UserSession.class);
+        UserSession session2 = context.getBean(UserSession.class);
+        
+        // session1 != session2 (different objects)
+        // session1.sessionId != session2.sessionId
+        
+        return session1;
+    }
+}
+```
+
+**When to use:**
+- Stateful objects (each needs its own state)
+- Request-scoped data (but use @RequestScope instead)
+- Objects that hold mutable state
+- User sessions
+- Form backing objects
+- When each client needs independent instance
+
+**Advantages:**
+- Independent instances
+- No state sharing
+- Suitable for stateful objects
+- Thread-safe (each thread gets own instance)
+
+**Disadvantages:**
+- Memory overhead (multiple instances)
+- No Spring lifecycle management
+- Caller must manage cleanup
+- @PreDestroy not called
+- Performance impact from repeated creation
+
+**Important Note:**
+```java
+@Component
+@Scope("prototype")
+public class ProtoBean {
+    @PreDestroy
+    public void cleanup() {
+        // ❌ NOT CALLED for prototype scope!
+    }
+}
+
+@Component
+@Scope("singleton")
+public class SingletonBean {
+    @PreDestroy
+    public void cleanup() {
+        // ✅ CALLED for singleton scope
+    }
+}
+```
+
+---
+
+#### 3. **request** (Web-Aware - Request Scope)
+
+**Definition:**
+A new bean instance is created for each HTTP request in a web application. The instance lives for the duration of the HTTP request.
+
+**Characteristics:**
+- New instance per HTTP request
+- Created when request arrives
+- Destroyed when request completes
+- Bound to ServletRequest
+- Only available in web applications
+- Spring manages full lifecycle (@PostConstruct and @PreDestroy called)
+
+**Declaration:**
+```java
+// Using @Scope annotation
+@Component
+@Scope("request")
+public class HttpRequestLogger {
+    private String requestId;
+    private LocalDateTime startTime;
+    
+    @PostConstruct
+    public void init() {
+        this.requestId = UUID.randomUUID().toString();
+        this.startTime = LocalDateTime.now();
+    }
+    
+    @PreDestroy
+    public void cleanup() {
+        System.out.println("Request " + requestId + " completed");
+    }
+}
+
+// Using WebApplicationContext.SCOPE_REQUEST (alternative)
+@Component
+@Scope(WebApplicationContext.SCOPE_REQUEST)
+public class HttpRequestLogger {
+}
+
+// XML-based
+<bean id="httpRequestLogger" class="com.example.HttpRequestLogger" scope="request" />
+```
+
+**Java Configuration:**
+```java
+@Configuration
+public class WebConfig {
+    @Bean
+    @Scope("request")
+    public HttpRequestLogger httpRequestLogger() {
+        return new HttpRequestLogger();
+    }
+}
+```
+
+**Example Use Case:**
+```java
+@RestController
+@RequestMapping("/api/users")
+public class UserController {
+    
+    @Autowired
+    private HttpRequestLogger requestLogger;  // Different instance per request
+    
+    @Autowired
+    private UserService userService;  // Same singleton instance
+    
+    @GetMapping("/{id}")
+    public User getUser(@PathVariable int id) {
+        // requestLogger is unique to this request
+        System.out.println("Request Logger ID: " + requestLogger.getRequestId());
+        return userService.getUserById(id);
+    }
+}
+```
+
+**When to use:**
+- Logging request details
+- Storing request-specific data
+- Tracking request headers
+- User request context
+- Request counters
+- Request/response tracking
+
+**Advantages:**
+- Automatic lifecycle management
+- Fresh instance per request
+- No state sharing between requests
+- Thread-safe within request context
+- @PreDestroy called automatically
+
+**Disadvantages:**
+- Only in web applications
+- Memory overhead for each request
+- Cannot be injected into singleton beans directly
+
+---
+
+#### 4. **session** (Web-Aware - Session Scope)
+
+**Definition:**
+A bean instance is created once per HTTP session and reused for all requests in that session. Destroyed when session expires.
+
+**Characteristics:**
+- One instance per user session
+- Created when user first accesses application
+- Bound to HttpSession
+- Shared across requests in same session
+- Destroyed when session expires/invalidates
+- Only in web applications
+- Spring manages full lifecycle
+
+**Declaration:**
+```java
+// Using @Scope annotation
+@Component
+@Scope("session")
+public class UserSessionData {
+    private String userId;
+    private String userName;
+    private LocalDateTime loginTime;
+    
+    @PostConstruct
+    public void init() {
+        this.loginTime = LocalDateTime.now();
+    }
+    
+    @PreDestroy
+    public void cleanup() {
+        System.out.println("Session expired for user: " + userName);
+    }
+}
+
+// Using WebApplicationContext.SCOPE_SESSION
+@Component
+@Scope(WebApplicationContext.SCOPE_SESSION)
+public class UserSessionData {
+}
+```
+
+**Example Use Case:**
+```java
+@RestController
+@RequestMapping("/api/profile")
+public class ProfileController {
+    
+    @Autowired
+    private UserSessionData sessionData;  // One per user session
+    
+    @GetMapping
+    public UserProfile getProfile() {
+        // sessionData is unique to this user's session
+        return new UserProfile(sessionData.getUserId());
+    }
+    
+    @PostMapping("/login")
+    public void login(@RequestBody LoginRequest request) {
+        // Store in session
+        sessionData.setUserId(request.getUserId());
+        sessionData.setUserName(request.getUserName());
+    }
+}
+```
+
+**When to use:**
+- User session data
+- Shopping cart (e-commerce)
+- User preferences
+- User login information
+- Session-specific state
+- Multi-request user data
+
+**Advantages:**
+- Automatic lifecycle management
+- Shared safely across requests in same session
+- Automatic cleanup on session expiration
+- Natural fit for web applications
+- Thread-safe within session context
+
+**Disadvantages:**
+- Only in web applications
+- Memory overhead (one per user)
+- Session data persists
+- Not suitable for large data volumes
+
+**Important Note:**
+```java
+@Component  // singleton by default
+public class UserService {
+    @Autowired
+    private UserSessionData sessionData;  // Problem! Injecting session into singleton
+    // ⚠️ Spring creates proxy to handle this
+}
+```
+
+---
+
+#### 5. **application** (Web-Aware - Application Scope)
+
+**Definition:**
+A single bean instance is created per ServletContext (entire web application). Shared across all users and sessions.
+
+**Characteristics:**
+- One instance per ServletContext
+- Shared across entire application
+- Similar to singleton but web-specific
+- Persists for application lifetime
+- Spring manages full lifecycle
+- Only in web applications
+
+**Declaration:**
+```java
+// Using @Scope annotation
+@Component
+@Scope("application")
+public class ApplicationConfig {
+    private String appVersion = "1.0.0";
+    private LocalDateTime startupTime;
+    
+    @PostConstruct
+    public void init() {
+        this.startupTime = LocalDateTime.now();
+    }
+}
+
+// Using WebApplicationContext.SCOPE_APPLICATION
+@Component
+@Scope(WebApplicationContext.SCOPE_APPLICATION)
+public class ApplicationConfig {
+}
+```
+
+**When to use:**
+- Application-wide configuration
+- Global counters
+- Application version info
+- Startup time
+- Application metadata
+- Shared across all users
+
+**Advantages:**
+- Single instance for entire app
+- Shared across all users
+- Memory efficient for app-level data
+- Automatic lifecycle management
+
+**Disadvantages:**
+- Only in web applications
+- Thread-safety concerns
+- Data shared across all users
+- Limited use cases
+
+---
+
+#### 6. **websocket** (Web-Aware - WebSocket Scope)
+
+**Definition:**
+A bean instance is created per WebSocket session and lives for the lifetime of the WebSocket connection.
+
+**Characteristics:**
+- One instance per WebSocket connection
+- Lives for duration of WebSocket session
+- Suitable for real-time communication
+- Spring manages full lifecycle
+- Only with Spring WebSocket support
+
+**When to use:**
+- WebSocket session data
+- Real-time messaging
+- Persistent connections
+- Live chat applications
+- Real-time dashboards
+
+---
+
+### Bean Scope Comparison Table
+
+| Scope | Instance Count | Lifetime | Created | Destroyed | Use Case | Thread-Safe |
+|-------|---|---|---|---|---|---|
+| **singleton** | 1 per container | Application | Startup | On shutdown | Stateless services | ✓ (managed) |
+| **prototype** | New each time | Per request | On-demand | Not by Spring | Stateful objects | ✓ (isolated) |
+| **request** | 1 per HTTP request | HTTP request | Request arrives | Request ends | Request-specific data | ✓ (request scope) |
+| **session** | 1 per user session | HTTP session | Session starts | Session expires | User session data | ✓ (session scope) |
+| **application** | 1 per app | Application | Startup | On shutdown | App-wide config | ✓ (managed) |
+| **websocket** | 1 per connection | WebSocket session | Connection opens | Connection closes | Real-time data | ✓ (connection scope) |
+
+### Interview Questions on Bean Scopes
+
+**Q1: What is the default bean scope in Spring?**
+A: Singleton is the default scope. One instance is created per ApplicationContext and reused for all requests.
+
+**Q2: When should you use prototype scope?**
+A: Use prototype scope for stateful objects where each client needs independent state. Examples: form backing objects, user sessions, request-specific data.
+
+**Q3: Will @PreDestroy be called for prototype beans?**
+A: No, @PreDestroy is NOT called for prototype beans. Spring doesn't manage the full lifecycle. Caller must manage cleanup.
+
+**Q4: What is the difference between singleton and request scope?**
+A: Singleton creates one instance for the entire application (reused everywhere). Request scope creates a new instance for each HTTP request and destroys it after the request.
+
+**Q5: Can you inject a session-scoped bean into a singleton?**
+A: Not directly, but Spring creates a proxy to handle this. The proxy resolves the actual session bean at runtime.
+
+**Q6: What is the difference between request and session scope?**
+A: Request scope lives for one HTTP request. Session scope lives for the entire user session (multiple requests).
+
+**Q7: When do you use application scope?**
+A: Application scope is rarely used. Similar to singleton but web-specific. Use for application-wide configuration or metadata shared across all users.
+
+**Q8: Why is prototype scope less common than singleton?**
+A: Prototype has overhead (new instance each time) and Spring doesn't manage lifecycle (@PreDestroy not called). Singleton is more efficient for stateless services.
+
+**Q9: Can multiple requests use the same singleton bean safely?**
+A: Yes, if the bean is stateless (no mutable fields). Spring manages thread-safety through container synchronization.
+
+**Q10: What happens if you inject prototype into singleton?**
+A: The prototype bean is created once during singleton initialization and reused. To get a new prototype each time, use ObjectProvider or ApplicationContext.getBean().
+
+---
+
+### Best Practices for Bean Scopes
+
+✅ **DO's:**
+1. Use singleton for stateless services (default)
+2. Use prototype for stateful objects
+3. Use request/session for web-specific data
+4. Be aware of thread-safety in singleton beans
+5. Use ObjectProvider for dynamic prototype injection into singleton
+
+❌ **DON'Ts:**
+1. Don't use singleton for stateful objects
+2. Don't assume @PreDestroy is called for prototype
+3. Don't put mutable state in singleton beans without synchronization
+4. Don't expect prototype beans to be garbage collected immediately
+5. Don't use prototype scope for performance (it's slower)
+
+---
+
+## 6. Dependency Injection Types (detailed)
 
 ### Constructor Injection
 **What is it?**
@@ -204,7 +790,7 @@ public class Employee {
 - Prefer constructor injection for required dependencies and setter injection for optional ones
 - Use @Autowired(required=false) or Optional<T> for optional dependencies
 
-## 6. Autowiring / Wiring Options
+## 7. Autowiring / Wiring Options
 
 **What is Autowiring?**
 Autowiring is a Spring feature that automatically injects bean dependencies without explicitly specifying them in XML configuration or using annotations. Instead of manually wiring dependencies using `<constructor-arg>` or `<property>`, Spring can automatically find and inject matching beans from the application context.
@@ -367,7 +953,7 @@ public class Employee {
 4. Use `@Autowired(required = false)` for optional dependencies
 5. Prefer annotations over XML for modern Spring applications
 
-## 7. @PostConstruct and @PreDestroy (Bean Lifecycle Callbacks)
+## 8. @PostConstruct and @PreDestroy (Bean Lifecycle Callbacks)
 
 **Overview:**
 `@PostConstruct` and `@PreDestroy` are lifecycle callback annotations that allow you to hook into the Spring bean lifecycle at specific points:
@@ -570,7 +1156,7 @@ A: No, methods must not throw checked exceptions. Wrap them in RuntimeException 
 **Q5: Does the @PostConstruct method name matter?**
 A: No, it can have any name. Unlike interface methods, only the annotation matters.
 
-## 8. Stereotype Annotations (Component Scanning)
+## 9. Stereotype Annotations (Component Scanning)
 
 **What are Stereotype Annotations?**
 Stereotype annotations are special annotations that mark a class as a Spring bean candidate for component scanning. They tell Spring to automatically detect and register the class as a bean in the ApplicationContext without explicit XML or Java configuration.
@@ -662,14 +1248,6 @@ public class UserService {
 - Typically injected with @Autowired in controllers
 - Should contain service methods (use cases)
 
-**Common Interview Question:**
-```
-Q: What is @Service used for?
-A: @Service marks a class as a service layer component containing business logic. 
-   It's a specialization of @Component that helps organize code by layer and 
-   makes the architecture clearer. Functionally, it's the same as @Component.
-```
-
 #### 3. **@Repository** (Data Access)
 - Specialization of @Component for data access/persistence layer
 - Marks a class as a Repository (DAO - Data Access Object)
@@ -702,41 +1280,11 @@ public class UserRepository {
 }
 ```
 
-**Exception Translation:**
-```java
-@Repository
-public class UserRepository {
-    @Autowired
-    private JdbcTemplate jdbcTemplate;
-    
-    public User findById(int id) {
-        try {
-            // Database operations
-            return jdbcTemplate.queryForObject(
-                "SELECT * FROM users WHERE id = ?", 
-                new UserRowMapper(), 
-                id
-            );
-        } catch (DataAccessException e) {
-            // Spring automatically translates database exceptions
-            // to DataAccessException (unchecked)
-            throw e;
-        }
-    }
-}
-```
-
 **When to use:**
 - Classes that interact with database
 - DAO (Data Access Object) implementations
 - Repository pattern implementations
 - JPA/Hibernate repositories
-
-**Best Practices:**
-- Use @Repository for data access logic
-- Extends CrudRepository or JpaRepository for Spring Data repositories
-- Methods should perform CRUD operations
-- Exception translation is automatic
 
 #### 4. **@Controller** (Web Layer - Request Handling)
 - Specialization of @Component for web/presentation layer
@@ -768,11 +1316,6 @@ public class UserController {
     }
 }
 ```
-
-**Key Points:**
-- Returns view names (String) that get resolved to actual views (JSP, Thymeleaf, etc.)
-- Populates Model with data for the view
-- Uses ViewResolver to resolve view names to actual view files
 
 #### 5. **@RestController** (Web Layer - REST API)
 - Specialization of @Controller for RESTful web services
@@ -813,17 +1356,6 @@ public class UserRestController {
 }
 ```
 
-**Differences from @Controller:**
-- @Controller returns view names (String)
-- @RestController returns response body (JSON/XML)
-- @RestController = @Controller + @ResponseBody
-
-**When to use:**
-- Building REST APIs
-- Returning JSON/XML data
-- Modern web services
-- Microservices architecture
-
 ### Comparison: Stereotype Annotations
 
 | Annotation | Layer | Purpose | Return Type | Use Case |
@@ -834,200 +1366,55 @@ public class UserRestController {
 | **@Controller** | Presentation | MVC request handler | View name (String) | Traditional web apps |
 | **@RestController** | Presentation | REST API handler | Response body (JSON) | REST APIs |
 
-### Hierarchy & Inheritance
+## 10. Interview Q&A (Final Comprehensive)
 
-```
-@Component (Generic)
-    ↓
-@Service, @Repository, @Controller, @RestController
-    ↓
-    └─ @RestController extends @Controller
-```
+**Q1: What are the different bean scopes available in Spring?**
+A: singleton (default, one instance per container), prototype (new instance each time), request (per HTTP request), session (per user session), application (per ServletContext), websocket (per WebSocket connection).
 
-- @Service, @Repository, @Controller are all meta-annotated with @Component
-- You can create custom stereotype annotations by meta-annotating @Component
-- All stereotype annotations enable automatic component scanning
+**Q2: What happens if you inject a prototype bean into a singleton bean?**
+A: Spring creates a proxy to handle it. The prototype bean is created once during singleton initialization. To get a new instance each time, use ObjectProvider or ApplicationContext.getBean().
 
-### Naming Beans with Stereotype Annotations
+**Q3: When is @PreDestroy NOT called?**
+A: @PreDestroy is NOT called for prototype-scoped beans since Spring doesn't manage their lifecycle after creation.
 
-```java
-// Default naming (lowercase first letter of class name)
-@Service
-public class UserService { }  // Bean name: "userService"
+**Q4: Singleton vs Prototype - which is better for performance?**
+A: Singleton is better for performance as it creates the instance once. Prototype has overhead from creating new instances each time.
 
-@Repository
-public class UserRepository { }  // Bean name: "userRepository"
+**Q5: Can you safely store mutable state in a singleton bean?**
+A: Not safely without proper synchronization. Singleton beans are shared across threads, so mutable state leads to race conditions. Keep singleton beans stateless.
 
-// Custom naming
-@Service("customUserService")
-public class UserService { }  // Bean name: "customUserService"
+**Q6: What is the default bean scope in Spring?**
+A: Singleton. One instance per ApplicationContext, reused for all requests.
 
-@Repository("userDAO")
-public class UserRepository { }  // Bean name: "userDAO"
-```
+**Q7: How long does a request-scoped bean live?**
+A: Only for the duration of the HTTP request. Created when request arrives, destroyed when response is sent.
 
-### Common Usage Pattern (Three-Tier Architecture)
+**Q8: What is the difference between request scope and session scope?**
+A: Request scope lives for one HTTP request. Session scope lives for the entire user session (multiple requests).
 
-```java
-// 1. Controller Layer (Presentation)
-@RestController
-@RequestMapping("/api/users")
-public class UserController {
-    @Autowired
-    private UserService userService;  // Inject service
-    
-    @GetMapping("/{id}")
-    public User getUser(@PathVariable int id) {
-        return userService.getUserById(id);
-    }
-}
+**Q9: Can prototype beans use @PreDestroy?**
+A: Yes, but @PreDestroy won't be called automatically by Spring. Caller must manage cleanup.
 
-// 2. Service Layer (Business Logic)
-@Service
-public class UserService {
-    @Autowired
-    private UserRepository userRepository;  // Inject repository
-    
-    public User getUserById(int id) {
-        return userRepository.findById(id);
-    }
-}
+**Q10: What bean scope should you use for shopping cart data?**
+A: Session scope, so each user has their own shopping cart that persists across requests.
 
-// 3. Repository Layer (Data Access)
-@Repository
-public class UserRepository {
-    @Autowired
-    private JdbcTemplate jdbcTemplate;
-    
-    public User findById(int id) {
-        return jdbcTemplate.queryForObject(
-            "SELECT * FROM users WHERE id = ?",
-            new UserRowMapper(),
-            id
-        );
-    }
-}
-```
+---
 
-### Interview Questions on Stereotype Annotations
-
-**Q1: What is the difference between @Component and @Service?**
-A: Both are functionally identical and enable component scanning. @Service is a specialization that semantically indicates business logic. Use @Component for generic components and @Service for business logic layer.
-
-**Q2: When would you use @Repository?**
-A: Use @Repository for data access/persistence layer classes (DAOs). It provides exception translation, converting database-specific exceptions to Spring's DataAccessException.
-
-**Q3: What is the difference between @Controller and @RestController?**
-A: @Controller returns view names (for traditional MVC), while @RestController returns response body (JSON/XML) for REST APIs. @RestController is @Controller + @ResponseBody.
-
-**Q4: Can you create custom stereotype annotations?**
-A: Yes, by meta-annotating with @Component:
-```java
-@Component
-@Target(ElementType.TYPE)
-@Retention(RetentionPolicy.RUNTIME)
-public @interface MyCustomStereotype {
-}
-```
-
-**Q5: What is component scanning and how does it work?**
-A: Component scanning is the process where Spring automatically detects classes marked with stereotype annotations in specified packages and registers them as beans. Enable it with @ComponentScan or <context:component-scan>.
-
-**Q6: How does Spring know which beans to create?**
-A: Spring uses component scanning to:
-1. Find all classes with stereotype annotations (@Component, @Service, etc.)
-2. Instantiate them
-3. Register as beans in ApplicationContext
-4. Perform dependency injection
-
-**Q7: What is the default bean name when using @Service?**
-A: The default bean name is the class name with the first letter in lowercase. For example, UserService becomes "userService".
-
-**Q8: Can you use multiple stereotype annotations on same class?**
-A: You should use only one. Use the most specific one:
-- @Service for business logic
-- @Repository for data access
-- @Controller/@RestController for web layer
-- @Component for generic components
-
-### Best Practices for Stereotype Annotations
-
-✅ **DO's:**
-1. Use @Service for business logic classes
-2. Use @Repository for data access classes
-3. Use @RestController for REST APIs
-4. Use @Controller for traditional MVC views
-5. Organize code into layers (presentation, business, data)
-6. Enable component scanning with @ComponentScan
-7. Use @Qualifier when multiple beans of same type exist
-
-❌ **DON'Ts:**
-1. Don't mix multiple stereotype annotations on same class
-2. Don't use @Component when a specific annotation (Service, Repository, etc.) applies
-3. Don't rely on default component scanning without explicit @ComponentScan
-4. Don't mix @Controller and @RestController
-5. Don't put business logic in Controller classes
-6. Don't put database queries outside Repository classes
-
-## 9. Interview Q&A (expanded: modules + DI + autowiring + lifecycle + stereotypes)
-
-**Q1: Name the main Spring modules and one responsibility of each.**
-A: Core (utilities), Beans (bean factory / wiring), Context (ApplicationContext and higher-level services), AOP (aspects/advice), JDBC/ORM (data access), Web/MVC (web layer), Test (testing support).
-
-**Q2: What is the difference between BeanFactory and ApplicationContext?**
-A: BeanFactory is the basic IoC container with lazy init. ApplicationContext builds on it, providing features like internationalization, event propagation, resource loading, and bean post-processing.
-
-**Q3: What is Dependency Injection and what are common types?**
-A: DI is providing dependencies from the container rather than the object creating them. Types: constructor, setter, field, method.
-
-**Q4: What is the difference between Constructor Injection and Setter Injection?**
-A: Constructor injection uses constructor parameters; setter injection uses setter methods. Constructor injection is preferred for required dependencies and immutability; setter injection for optional ones.
-
-**Q5: Can setter injection help with circular dependencies?**
-A: Yes — because Spring can instantiate beans first and later set dependencies via setters. Constructor injection cannot resolve circular constructor dependencies.
-
-**Q6: What is autowiring?**
-A: Autowiring is Spring automatically finding and injecting matching beans without explicit configuration. Modes: byName, byType, constructor, autodetect (deprecated).
-
-**Q7: What autowiring mode should I use?**
-A: `byType` is most common and flexible. Use `byName` when bean IDs are meaningful. Use `constructor` with annotations (@Autowired on constructor) in modern Spring.
-
-**Q8: What is @PostConstruct and when is it called?**
-A: It marks a method called after bean instantiation and dependency injection, before the bean is ready for use. Used for initialization logic.
-
-**Q9: What is @PreDestroy and when is it called?**
-A: It marks a method called before bean destruction when the application context closes. Used for resource cleanup and shutdown logic.
-
-**Q10: Can @PreDestroy be used with prototype beans?**
-A: No, @PreDestroy is only called for singleton beans. Spring doesn't manage the lifecycle of prototype beans.
-
-**Q11: What are stereotype annotations?**
-A: Annotations that mark classes as Spring beans for component scanning: @Component (generic), @Service (business logic), @Repository (data access), @Controller (MVC), @RestController (REST APIs).
-
-**Q12: What is the difference between @Service and @Component?**
-A: Both enable component scanning. @Service semantically indicates business logic layer, while @Component is for generic components. Use specific annotations for better code organization.
-
-**Q13: When should you use @Repository?**
-A: For data access/persistence layer classes that interact with database. It provides exception translation from database-specific exceptions to Spring's DataAccessException.
-
-**Q14: What is component scanning?**
-A: Process where Spring automatically detects classes with stereotype annotations in specified packages and registers them as beans. Enable with @ComponentScan or <context:component-scan>.
-
-**Q15: How is @RestController different from @Controller?**
-A: @Controller returns view names (for traditional MVC rendering), while @RestController returns response body (JSON/XML) for REST APIs. @RestController = @Controller + @ResponseBody.
-
-## 10. Quick revision checklist
+## 11. Quick revision checklist
+- ✓ List all 6 bean scopes and their lifetimes
+- ✓ Understand singleton vs prototype differences
+- ✓ Know when @PreDestroy is/isn't called
+- ✓ Explain request, session, and application scopes
+- ✓ Understand thread-safety in singleton beans
+- ✓ Know how to inject prototypes into singletons
 - ✓ List Spring modules and their responsibilities
 - ✓ Explain IoC vs DI concisely
 - ✓ Describe BeanFactory vs ApplicationContext
-- ✓ Know bean scopes and lifecycle steps
-- ✓ Explain all three DI types with examples and pros/cons
-- ✓ Explain autowiring modes and when to use each
+- ✓ Explain all three DI types with pros/cons
+- ✓ Explain autowiring modes
 - ✓ Understand @PostConstruct and @PreDestroy lifecycle hooks
 - ✓ Know when to use each stereotype annotation
-- ✓ Understand component scanning and how it works
-- ✓ Recognize three-tier architecture pattern
-- ✓ Know best practices for organizing code into layers
+- ✓ Understand component scanning
 
 ---
 
