@@ -1,6 +1,6 @@
 # Spring Notes
 
-This file contains concise interview-focused notes on Spring Framework modules and core concepts including dependency injection, autowiring, and bean lifecycle management.
+This file contains concise interview-focused notes on Spring Framework modules and core concepts including dependency injection, autowiring, bean lifecycle management, and stereotype annotations.
 
 ## 1. What is Spring?
 - Spring is a lightweight Java framework that helps build enterprise applications.
@@ -570,7 +570,406 @@ A: No, methods must not throw checked exceptions. Wrap them in RuntimeException 
 **Q5: Does the @PostConstruct method name matter?**
 A: No, it can have any name. Unlike interface methods, only the annotation matters.
 
-## 8. Interview Q&A (expanded: modules + DI + autowiring + lifecycle)
+## 8. Stereotype Annotations (Component Scanning)
+
+**What are Stereotype Annotations?**
+Stereotype annotations are special annotations that mark a class as a Spring bean candidate for component scanning. They tell Spring to automatically detect and register the class as a bean in the ApplicationContext without explicit XML or Java configuration.
+
+**Key Concept:**
+Instead of manually defining beans in XML or using @Bean, stereotype annotations allow you to declare beans directly in the class definition. Spring discovers these during component scanning.
+
+### How Component Scanning Works
+1. Spring scans the specified package and sub-packages
+2. Finds classes annotated with stereotype annotations
+3. Instantiates beans automatically
+4. Registers them in the ApplicationContext
+5. Performs dependency injection
+
+**Enable Component Scanning:**
+```java
+// In Java Configuration
+@Configuration
+@ComponentScan(basePackages = "com.example")  // Specify package to scan
+public class AppConfig {
+    // Other bean definitions
+}
+```
+
+```xml
+<!-- In XML Configuration -->
+<context:component-scan base-package="com.example" />
+```
+
+### Main Stereotype Annotations
+
+#### 1. **@Component** (Most Generic)
+- Generic stereotype annotation for any Spring-managed component
+- Direct child class used for non-specific components
+- Spring will automatically detect and register as a bean
+
+**Usage:**
+```java
+@Component
+public class MyComponent {
+    // This is a generic Spring bean
+}
+
+// With custom bean name
+@Component("customBeanName")
+public class MyComponent {
+    // Bean will be registered as "customBeanName"
+}
+
+// Default bean name (lowercase first letter of class name)
+@Component  // Registered as "myComponent"
+public class MyComponent {
+}
+```
+
+**When to use:**
+- General-purpose Spring components
+- Classes that don't fit into Service, Repository, or Controller categories
+- Utility classes that need to be managed by Spring
+
+#### 2. **@Service** (Business Logic)
+- Specialization of @Component for business logic layer
+- Marks a class as a Service provider
+- Semantically indicates the class contains business logic
+- Functionally identical to @Component but conveys intent
+
+**Usage:**
+```java
+@Service
+public class UserService {
+    // Business logic methods
+    public User getUserById(int id) {
+        // Implementation
+    }
+    
+    public void saveUser(User user) {
+        // Implementation
+    }
+}
+
+// With custom bean name
+@Service("userServiceImpl")
+public class UserService {
+}
+```
+
+**Best Practices:**
+- Use @Service for classes containing business logic
+- Typically injected with @Autowired in controllers
+- Should contain service methods (use cases)
+
+**Common Interview Question:**
+```
+Q: What is @Service used for?
+A: @Service marks a class as a service layer component containing business logic. 
+   It's a specialization of @Component that helps organize code by layer and 
+   makes the architecture clearer. Functionally, it's the same as @Component.
+```
+
+#### 3. **@Repository** (Data Access)
+- Specialization of @Component for data access/persistence layer
+- Marks a class as a Repository (DAO - Data Access Object)
+- Provides benefits:
+  - Platform-independent persistence exception translation
+  - Converts database-specific exceptions to Spring DataAccessException
+  - Makes error handling consistent across database technologies
+
+**Usage:**
+```java
+@Repository
+public class UserRepository {
+    // Database operations
+    public User findById(int id) {
+        // SQL query logic
+    }
+    
+    public void save(User user) {
+        // Insert/Update logic
+    }
+    
+    public void delete(int id) {
+        // Delete logic
+    }
+}
+
+// With custom bean name
+@Repository("userDAO")
+public class UserRepository {
+}
+```
+
+**Exception Translation:**
+```java
+@Repository
+public class UserRepository {
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+    
+    public User findById(int id) {
+        try {
+            // Database operations
+            return jdbcTemplate.queryForObject(
+                "SELECT * FROM users WHERE id = ?", 
+                new UserRowMapper(), 
+                id
+            );
+        } catch (DataAccessException e) {
+            // Spring automatically translates database exceptions
+            // to DataAccessException (unchecked)
+            throw e;
+        }
+    }
+}
+```
+
+**When to use:**
+- Classes that interact with database
+- DAO (Data Access Object) implementations
+- Repository pattern implementations
+- JPA/Hibernate repositories
+
+**Best Practices:**
+- Use @Repository for data access logic
+- Extends CrudRepository or JpaRepository for Spring Data repositories
+- Methods should perform CRUD operations
+- Exception translation is automatic
+
+#### 4. **@Controller** (Web Layer - Request Handling)
+- Specialization of @Component for web/presentation layer
+- Marks a class as a Controller that handles HTTP requests
+- Used with @RequestMapping and request handler methods
+- Returns a view name or model
+- Often used with traditional Spring MVC applications
+
+**Usage:**
+```java
+@Controller
+public class UserController {
+    
+    @Autowired
+    private UserService userService;
+    
+    @RequestMapping("/users/{id}")
+    public String getUser(@PathVariable int id, Model model) {
+        User user = userService.getUserById(id);
+        model.addAttribute("user", user);
+        return "userDetail";  // View name
+    }
+    
+    @RequestMapping("/users")
+    public String listUsers(Model model) {
+        List<User> users = userService.getAllUsers();
+        model.addAttribute("users", users);
+        return "userList";  // View name
+    }
+}
+```
+
+**Key Points:**
+- Returns view names (String) that get resolved to actual views (JSP, Thymeleaf, etc.)
+- Populates Model with data for the view
+- Uses ViewResolver to resolve view names to actual view files
+
+#### 5. **@RestController** (Web Layer - REST API)
+- Specialization of @Controller for RESTful web services
+- Equivalent to @Controller + @ResponseBody on all methods
+- Automatically serializes return value to JSON/XML
+- Returns response body directly (not a view name)
+- Modern REST API development
+
+**Usage:**
+```java
+@RestController
+@RequestMapping("/api/users")
+public class UserRestController {
+    
+    @Autowired
+    private UserService userService;
+    
+    // Returns JSON response
+    @GetMapping("/{id}")
+    public User getUser(@PathVariable int id) {
+        return userService.getUserById(id);  // Auto-converted to JSON
+    }
+    
+    @GetMapping
+    public List<User> listUsers() {
+        return userService.getAllUsers();  // Auto-converted to JSON array
+    }
+    
+    @PostMapping
+    public User createUser(@RequestBody User user) {
+        return userService.saveUser(user);  // Auto-converted to JSON
+    }
+    
+    @DeleteMapping("/{id}")
+    public void deleteUser(@PathVariable int id) {
+        userService.deleteUser(id);
+    }
+}
+```
+
+**Differences from @Controller:**
+- @Controller returns view names (String)
+- @RestController returns response body (JSON/XML)
+- @RestController = @Controller + @ResponseBody
+
+**When to use:**
+- Building REST APIs
+- Returning JSON/XML data
+- Modern web services
+- Microservices architecture
+
+### Comparison: Stereotype Annotations
+
+| Annotation | Layer | Purpose | Return Type | Use Case |
+|-----------|-------|---------|-------------|----------|
+| **@Component** | Generic | Generic Spring bean | - | General-purpose components |
+| **@Service** | Business Logic | Service/Business logic layer | Service methods | Business operations |
+| **@Repository** | Data Access | DAO/Database layer | Entity objects | CRUD operations |
+| **@Controller** | Presentation | MVC request handler | View name (String) | Traditional web apps |
+| **@RestController** | Presentation | REST API handler | Response body (JSON) | REST APIs |
+
+### Hierarchy & Inheritance
+
+```
+@Component (Generic)
+    ↓
+@Service, @Repository, @Controller, @RestController
+    ↓
+    └─ @RestController extends @Controller
+```
+
+- @Service, @Repository, @Controller are all meta-annotated with @Component
+- You can create custom stereotype annotations by meta-annotating @Component
+- All stereotype annotations enable automatic component scanning
+
+### Naming Beans with Stereotype Annotations
+
+```java
+// Default naming (lowercase first letter of class name)
+@Service
+public class UserService { }  // Bean name: "userService"
+
+@Repository
+public class UserRepository { }  // Bean name: "userRepository"
+
+// Custom naming
+@Service("customUserService")
+public class UserService { }  // Bean name: "customUserService"
+
+@Repository("userDAO")
+public class UserRepository { }  // Bean name: "userDAO"
+```
+
+### Common Usage Pattern (Three-Tier Architecture)
+
+```java
+// 1. Controller Layer (Presentation)
+@RestController
+@RequestMapping("/api/users")
+public class UserController {
+    @Autowired
+    private UserService userService;  // Inject service
+    
+    @GetMapping("/{id}")
+    public User getUser(@PathVariable int id) {
+        return userService.getUserById(id);
+    }
+}
+
+// 2. Service Layer (Business Logic)
+@Service
+public class UserService {
+    @Autowired
+    private UserRepository userRepository;  // Inject repository
+    
+    public User getUserById(int id) {
+        return userRepository.findById(id);
+    }
+}
+
+// 3. Repository Layer (Data Access)
+@Repository
+public class UserRepository {
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+    
+    public User findById(int id) {
+        return jdbcTemplate.queryForObject(
+            "SELECT * FROM users WHERE id = ?",
+            new UserRowMapper(),
+            id
+        );
+    }
+}
+```
+
+### Interview Questions on Stereotype Annotations
+
+**Q1: What is the difference between @Component and @Service?**
+A: Both are functionally identical and enable component scanning. @Service is a specialization that semantically indicates business logic. Use @Component for generic components and @Service for business logic layer.
+
+**Q2: When would you use @Repository?**
+A: Use @Repository for data access/persistence layer classes (DAOs). It provides exception translation, converting database-specific exceptions to Spring's DataAccessException.
+
+**Q3: What is the difference between @Controller and @RestController?**
+A: @Controller returns view names (for traditional MVC), while @RestController returns response body (JSON/XML) for REST APIs. @RestController is @Controller + @ResponseBody.
+
+**Q4: Can you create custom stereotype annotations?**
+A: Yes, by meta-annotating with @Component:
+```java
+@Component
+@Target(ElementType.TYPE)
+@Retention(RetentionPolicy.RUNTIME)
+public @interface MyCustomStereotype {
+}
+```
+
+**Q5: What is component scanning and how does it work?**
+A: Component scanning is the process where Spring automatically detects classes marked with stereotype annotations in specified packages and registers them as beans. Enable it with @ComponentScan or <context:component-scan>.
+
+**Q6: How does Spring know which beans to create?**
+A: Spring uses component scanning to:
+1. Find all classes with stereotype annotations (@Component, @Service, etc.)
+2. Instantiate them
+3. Register as beans in ApplicationContext
+4. Perform dependency injection
+
+**Q7: What is the default bean name when using @Service?**
+A: The default bean name is the class name with the first letter in lowercase. For example, UserService becomes "userService".
+
+**Q8: Can you use multiple stereotype annotations on same class?**
+A: You should use only one. Use the most specific one:
+- @Service for business logic
+- @Repository for data access
+- @Controller/@RestController for web layer
+- @Component for generic components
+
+### Best Practices for Stereotype Annotations
+
+✅ **DO's:**
+1. Use @Service for business logic classes
+2. Use @Repository for data access classes
+3. Use @RestController for REST APIs
+4. Use @Controller for traditional MVC views
+5. Organize code into layers (presentation, business, data)
+6. Enable component scanning with @ComponentScan
+7. Use @Qualifier when multiple beans of same type exist
+
+❌ **DON'Ts:**
+1. Don't mix multiple stereotype annotations on same class
+2. Don't use @Component when a specific annotation (Service, Repository, etc.) applies
+3. Don't rely on default component scanning without explicit @ComponentScan
+4. Don't mix @Controller and @RestController
+5. Don't put business logic in Controller classes
+6. Don't put database queries outside Repository classes
+
+## 9. Interview Q&A (expanded: modules + DI + autowiring + lifecycle + stereotypes)
 
 **Q1: Name the main Spring modules and one responsibility of each.**
 A: Core (utilities), Beans (bean factory / wiring), Context (ApplicationContext and higher-level services), AOP (aspects/advice), JDBC/ORM (data access), Web/MVC (web layer), Test (testing support).
@@ -602,15 +1001,33 @@ A: It marks a method called before bean destruction when the application context
 **Q10: Can @PreDestroy be used with prototype beans?**
 A: No, @PreDestroy is only called for singleton beans. Spring doesn't manage the lifecycle of prototype beans.
 
-## 9. Quick revision checklist
-- Be able to list Spring modules and mention why modularity helps
-- Explain IoC vs DI concisely
-- Describe BeanFactory vs ApplicationContext
-- Know bean scopes and lifecycle steps
-- Explain all three DI types with examples and pros/cons
-- Explain autowiring modes and when to use each
-- Understand @PostConstruct and @PreDestroy lifecycle hooks
-- Know best practices for each injection type
+**Q11: What are stereotype annotations?**
+A: Annotations that mark classes as Spring beans for component scanning: @Component (generic), @Service (business logic), @Repository (data access), @Controller (MVC), @RestController (REST APIs).
+
+**Q12: What is the difference between @Service and @Component?**
+A: Both enable component scanning. @Service semantically indicates business logic layer, while @Component is for generic components. Use specific annotations for better code organization.
+
+**Q13: When should you use @Repository?**
+A: For data access/persistence layer classes that interact with database. It provides exception translation from database-specific exceptions to Spring's DataAccessException.
+
+**Q14: What is component scanning?**
+A: Process where Spring automatically detects classes with stereotype annotations in specified packages and registers them as beans. Enable with @ComponentScan or <context:component-scan>.
+
+**Q15: How is @RestController different from @Controller?**
+A: @Controller returns view names (for traditional MVC rendering), while @RestController returns response body (JSON/XML) for REST APIs. @RestController = @Controller + @ResponseBody.
+
+## 10. Quick revision checklist
+- ✓ List Spring modules and their responsibilities
+- ✓ Explain IoC vs DI concisely
+- ✓ Describe BeanFactory vs ApplicationContext
+- ✓ Know bean scopes and lifecycle steps
+- ✓ Explain all three DI types with examples and pros/cons
+- ✓ Explain autowiring modes and when to use each
+- ✓ Understand @PostConstruct and @PreDestroy lifecycle hooks
+- ✓ Know when to use each stereotype annotation
+- ✓ Understand component scanning and how it works
+- ✓ Recognize three-tier architecture pattern
+- ✓ Know best practices for organizing code into layers
 
 ---
 
