@@ -5,6 +5,7 @@ import org.springframework.context.support.ClassPathXmlApplicationContext;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import com.spring.jdbc.dao.StudentDao;
+import com.spring.jdbc.entities.Student;
 
 /**
  * Hello world!
@@ -37,7 +38,10 @@ public class App {
 //
 //		System.out.println("data changed " + change);
 // Delete
-		int d = bean2.delete(2);
-		System.out.println("student deleted" + d);
+//		int d = bean2.delete(2);
+//		System.out.println("student deleted" + d);
+// Fetching Single data
+		Student student = bean2.getStudent(1);
+		System.out.println("fetched " + student );
 	}
 }
